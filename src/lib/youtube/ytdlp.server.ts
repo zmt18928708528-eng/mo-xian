@@ -98,10 +98,18 @@ type YtEntry = {
   thumbnails?: Array<{ url?: string }>;
 };
 
-function bin(): { cmd: string; prefix: string[] } {
+function pythonBin(): string | null {
+  if (existsSync("/usr/local/bin/python3")) return "/usr/local/bin/python3";
+  if (existsSync("/usr/bin/python3")) return "/usr/bin/python3";
+  return null;
+}
+
+function bin(): { cmd: string; prefix: string[] } | null {
   if (existsSync("/usr/local/bin/yt-dlp")) return { cmd: "/usr/local/bin/yt-dlp", prefix: [] };
   if (existsSync("/usr/bin/yt-dlp")) return { cmd: "/usr/bin/yt-dlp", prefix: [] };
-  return { cmd: "python3", prefix: ["-m", "yt_dlp"] };
+  const python = pythonBin();
+  if (python) return { cmd: python, prefix: ["-m", "yt_dlp"] };
+  return null;
 }
 
 export function ytDlpAvailable(): boolean {
@@ -134,6 +142,9 @@ function commonArgs(): string[] {
 
 function humanizeError(stderr: string, fallback: string): string {
   const text = stderr.replace(/\s+/g, " ");
+  if (/ENOENT|spawn/i.test(text)) {
+    return "当前环境无法启动下载器，请稍后重试";
+  }
   if (/403: Forbidden|HTTP Error 403/i.test(text)) {
     return "YouTube 暂时拒绝取流，请稍后再试";
   }
@@ -156,7 +167,11 @@ function humanizeError(stderr: string, fallback: string): string {
 }
 
 export function runYtDlp(args: string[], timeoutMs: number): Promise<string> {
-  const { cmd, prefix } = bin();
+  const found = bin();
+  if (!found) {
+    return Promise.reject(new Error("当前环境无法启动下载器，请稍后重试"));
+  }
+  const { cmd, prefix } = found;
   return new Promise((resolve, reject) => {
     const child = spawn(cmd, [...prefix, ...args], {
       env: { ...process.env, PYTHONUNBUFFERED: "1" },
@@ -175,7 +190,7 @@ export function runYtDlp(args: string[], timeoutMs: number): Promise<string> {
     });
     child.on("error", (err) => {
       clearTimeout(timer);
-      reject(new Error(err.message || "无法启动下载器"));
+      reject(new Error(humanizeError(err.message || "", "无法启动下载器")));
     });
     child.on("close", (code) => {
       clearTimeout(timer);
