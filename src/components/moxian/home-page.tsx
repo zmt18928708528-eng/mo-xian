@@ -19,7 +19,8 @@ import { InkField } from "@/components/moxian/ink-field";
 import { SealMark } from "@/components/moxian/seal";
 import { formatBytes, formatCount, formatDuration, sanitizeFilename } from "@/lib/format";
 import { clearHistory, loadHistory, rememberVideo, type HistoryItem } from "@/lib/history";
-import { resolveMediaFn } from "@/lib/youtube/actions";
+import { issueVisitorFn, resolveMediaFn } from "@/lib/youtube/actions";
+import { mintPoTokens } from "@/lib/youtube/pot.client";
 import { EXAMPLE_VIDEO, parseYouTubeInput, watchUrl } from "@/lib/youtube/parse";
 import type { FormatOption, PlaylistInfo, ResolveResult, VideoInfo } from "@/lib/youtube/types";
 import { cn } from "@/lib/utils";
@@ -99,6 +100,15 @@ export function HomePage() {
         q: format.id,
         title: info.title,
       });
+      try {
+        const { visitorData } = await issueVisitorFn();
+        const tokens = await mintPoTokens(visitorData, info.videoId);
+        params.set("visitor", visitorData);
+        params.set("vpo", tokens.visitorPo);
+        params.set("cpo", tokens.contentPo);
+      } catch {
+        /* 浏览器验证失败时仍尝试服务端取流 */
+      }
       const response = await fetch(`/api/download?${params.toString()}`);
       if (!response.ok) {
         let message = "下载失败";

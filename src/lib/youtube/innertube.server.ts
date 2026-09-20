@@ -1,4 +1,4 @@
-import { Innertube, Platform } from "youtubei.js";
+import { Innertube, Platform, ProtoUtils, Utils } from "youtubei.js";
 import type { PresetId } from "./ytdlp.server";
 
 const CLIENTS = ["ANDROID", "IOS", "MWEB"] as const;
@@ -12,18 +12,35 @@ const UA: Record<YtClient, string> = {
 
 Platform.shim.eval = async (data) => new Function(data.output)();
 
-let tubePromise: Promise<Innertube> | null = null;
+export type PoAuth = {
+  visitorData: string;
+  visitorPo: string;
+  contentPo: string;
+};
 
-function getTube(): Promise<Innertube> {
-  tubePromise ??= Innertube.create({
+export function makeVisitorData(): string {
+  return ProtoUtils.encodeVisitorData(Utils.generateRandomString(11), Math.floor(Date.now() / 1000));
+}
+
+const tubes = new Map<string, Promise<Innertube>>();
+
+function getTube(auth?: PoAuth): Promise<Innertube> {
+  const key = auth ? `po:${auth.visitorData}` : "anon";
+  const existing = tubes.get(key);
+  if (existing) return existing;
+  const created = Innertube.create({
     generate_session_locally: true,
     retrieve_player: true,
     enable_session_cache: false,
+    ...(auth
+      ? { visitor_data: auth.visitorData, po_token: auth.visitorPo }
+      : {}),
   }).catch((err: unknown) => {
-    tubePromise = null;
+    tubes.delete(key);
     throw err;
   });
-  return tubePromise;
+  tubes.set(key, created);
+  return created;
 }
 
 type LooseFormat = {
@@ -36,9 +53,6 @@ type LooseFormat = {
   mime_type?: string;
   has_audio?: boolean;
   has_video?: boolean;
-  audio_quality?: string;
-  quality_label?: string;
-  content_length?: number | string;
   decipher?: (player: unknown) => string | Promise<string>;
 };
 
@@ -73,25 +87,32 @@ function pickFormat(
   return fit ?? ranked[ranked.length - 1] ?? ranked[0] ?? null;
 }
 
-async function resolveUrl(format: LooseFormat, player: unknown): Promise<string> {
+async function resolveUrl(format: LooseFormat, player: unknown, contentPo?: string): Promise<string> {
+  let url = format.url || "";
   if (typeof format.decipher === "function" && player) {
-    const out = await format.decipher(player);
-    if (out) return out;
+    url = (await format.decipher(player)) || url;
   }
-  if (format.url) return format.url;
-  throw new Error("没有可用的取流地址");
+  if (!url) throw new Error("没有可用的取流地址");
+  if (contentPo && !url.includes("pot=")) {
+    url += `&pot=${encodeURIComponent(contentPo)}`;
+  }
+  return url;
 }
 
 export async function openInnertubeDownload(
   videoId: string,
   preset: PresetId,
+  auth?: PoAuth,
 ): Promise<{ body: ReadableStream<Uint8Array>; ext: string; contentType: string; contentLength: string | null }> {
-  const yt = await getTube();
+  const yt = await getTube(auth);
   let last = "暂时无法下载，请稍后重试";
 
   for (const client of CLIENTS) {
     try {
-      const info = await yt.getBasicInfo(videoId, { client });
+      const info = await yt.getBasicInfo(videoId, {
+        client,
+        ...(auth?.contentPo ? { po_token: auth.contentPo } : {}),
+      });
       const status = info.playability_status?.status;
       if (status && status !== "OK") {
         last = info.playability_status?.reason || "视频不可播放";
@@ -102,7 +123,7 @@ export async function openInnertubeDownload(
         last = "没有找到可下载的格式";
         continue;
       }
-      const mediaUrl = await resolveUrl(format, yt.session.player);
+      const mediaUrl = await resolveUrl(format, yt.session.player, auth?.contentPo);
       const upstream = await fetch(mediaUrl, {
         headers: {
           "User-Agent": UA[client],

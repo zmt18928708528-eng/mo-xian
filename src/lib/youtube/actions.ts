@@ -8,3 +8,8 @@ export const resolveMediaFn = createServerFn({ method: "POST" })
   .handler(async ({ data }): Promise<ResolveResult> => {
     return resolveMedia(data.url);
   });
+
+export const issueVisitorFn = createServerFn({ method: "POST" }).handler(async () => {
+  const { makeVisitorData } = await import("./innertube.server");
+  return { visitorData: makeVisitorData() };
+});

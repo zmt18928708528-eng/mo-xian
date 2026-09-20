@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { Readable } from "node:stream";
 import { contentDisposition, sanitizeFilename } from "@/lib/format";
 import { parseYouTubeInput } from "@/lib/youtube/parse";
-import { openInnertubeDownload } from "@/lib/youtube/innertube.server";
+import { openInnertubeDownload, type PoAuth } from "@/lib/youtube/innertube.server";
 import {
   DOWNLOAD_TIMEOUT_MS,
   downloadFileArgs,
@@ -98,8 +98,14 @@ export async function handleDownload(request: Request): Promise<Response> {
   if (parsed.type !== "video") return fail("缺少有效的视频编号");
   if (!isPresetId(rawQ)) return fail("不支持的画质");
 
+  const visitor = url.searchParams.get("visitor") ?? "";
+  const visitorPo = url.searchParams.get("vpo") ?? "";
+  const contentPo = url.searchParams.get("cpo") ?? "";
+  const auth: PoAuth | undefined =
+    visitor && visitorPo && contentPo ? { visitorData: visitor, visitorPo, contentPo } : undefined;
+
   try {
-    const media = await openInnertubeDownload(parsed.videoId, rawQ);
+    const media = await openInnertubeDownload(parsed.videoId, rawQ, auth);
     const filename = `${sanitizeFilename(title)}.${media.ext}`;
     const headers: Record<string, string> = {
       "Content-Type": media.contentType,
