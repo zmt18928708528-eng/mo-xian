@@ -20,7 +20,7 @@ import { SealMark } from "@/components/moxian/seal";
 import { formatBytes, formatCount, formatDuration, sanitizeFilename } from "@/lib/format";
 import { clearHistory, loadHistory, rememberVideo, type HistoryItem } from "@/lib/history";
 import { issueVisitorFn, resolveMediaFn } from "@/lib/youtube/actions";
-import { mintPoTokens } from "@/lib/youtube/pot.client";
+import { mintPoTokens } from "@/lib/youtube/browser-pot";
 import { EXAMPLE_VIDEO, parseYouTubeInput, watchUrl } from "@/lib/youtube/parse";
 import type { FormatOption, PlaylistInfo, ResolveResult, VideoInfo } from "@/lib/youtube/types";
 import { cn } from "@/lib/utils";
